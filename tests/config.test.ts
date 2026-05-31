@@ -173,6 +173,30 @@ describe("isPortalAllowed (SSRF protection)", () => {
     expect(isPortalAllowed("https://malicious.com", cfg)).toBe(false);
   });
 
+  it("normalizes full URLs in the allowlist to bare hostnames", () => {
+    // Regression: a full URL in ARCGIS_ALLOWED_PORTALS must still match, since
+    // isPortalAllowed compares against url.hostname.
+    const cfg = loadConfig({
+      ARCGIS_ALLOWED_PORTALS: "https://aed-sicad.maps.arcgis.com",
+    });
+    expect(cfg.allowedPortals).toEqual(["aed-sicad.maps.arcgis.com"]);
+    expect(isPortalAllowed("https://aed-sicad.maps.arcgis.com", cfg)).toBe(true);
+    expect(isPortalAllowed("https://aed-sicad.maps.arcgis.com/sharing/rest", cfg)).toBe(true);
+  });
+
+  it("accepts a mix of full URLs and bare hostnames", () => {
+    const cfg = loadConfig({
+      ARCGIS_ALLOWED_PORTALS: "https://a.maps.arcgis.com/, b.example.com, http://c.org:7080",
+    });
+    expect(cfg.allowedPortals).toEqual(["a.maps.arcgis.com", "b.example.com", "c.org"]);
+  });
+
+  it("matches case-insensitively", () => {
+    const cfg = loadConfig({ ARCGIS_ALLOWED_PORTALS: "Gis.Example.COM" });
+    expect(cfg.allowedPortals).toEqual(["gis.example.com"]);
+    expect(isPortalAllowed("https://GIS.example.com", cfg)).toBe(true);
+  });
+
   it("deduplicates and trims the allowlist", () => {
     const cfg = loadConfig({
       ARCGIS_ALLOWED_PORTALS: "host.com , host.com, other.com ",

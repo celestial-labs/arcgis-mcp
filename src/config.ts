@@ -84,22 +84,37 @@ function parsePort(value: string | undefined, fallback: number): number {
   return Number.isInteger(parsed) && parsed > 0 && parsed < 65536 ? parsed : fallback;
 }
 
+/**
+ * Normalize a portal entry to a bare hostname. Accepts either a full URL
+ * (`https://org.maps.arcgis.com/...`) or an already-bare hostname
+ * (`org.maps.arcgis.com`). Returns `undefined` if it can't be parsed.
+ */
+function toHostname(entry: string): string | undefined {
+  // Already a bare hostname (no scheme, no slash) — use as-is.
+  if (!entry.includes("/") && !entry.includes(":")) return entry.toLowerCase();
+  try {
+    // Prepend a scheme if missing so the URL parser accepts it.
+    const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(entry) ? entry : `https://${entry}`;
+    return new URL(withScheme).hostname.toLowerCase();
+  } catch {
+    return undefined;
+  }
+}
+
 function parseAllowedPortals(value: string | undefined, defaultPortalUrl: string): string[] {
   const raw = clean(value);
   if (!raw) {
-    try {
-      const url = new URL(defaultPortalUrl);
-      return [url.hostname];
-    } catch {
-      return [];
-    }
+    const host = toHostname(defaultPortalUrl);
+    return host ? [host] : [];
   }
   return Array.from(
     new Set(
       raw
         .split(",")
         .map((h) => h.trim())
-        .filter((h) => h.length > 0),
+        .filter((h) => h.length > 0)
+        .map(toHostname)
+        .filter((h): h is string => h !== undefined),
     ),
   );
 }
@@ -152,7 +167,7 @@ export function loadConfig(env: Env = process.env): Config {
 export function isPortalAllowed(portalUrl: string, config: Config): boolean {
   try {
     const url = new URL(portalUrl);
-    return config.allowedPortals.includes(url.hostname);
+    return config.allowedPortals.includes(url.hostname.toLowerCase());
   } catch {
     return false;
   }
