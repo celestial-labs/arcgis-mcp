@@ -6,7 +6,7 @@ MCP clients (Claude Desktop, etc.) search and inspect **ArcGIS Portal** and
 [`@esri/arcgis-rest-js`](https://developers.arcgis.com/arcgis-rest-js/) — no
 Esri Python stack, no native dependencies.
 
-- **Transport:** stdio
+- **Transport:** stdio (local) **or** Streamable HTTP (hosted/remote)
 - **Tools:** `search_items`, `portal_info`
 - **Auth:** API key · OAuth app login · username/password · anonymous (auto-detected)
 
@@ -53,11 +53,13 @@ by precedence — the first matching block wins:
 
 Additional variables:
 
-| Variable            | Default                  | Notes                                            |
-| ------------------- | ------------------------ | ------------------------------------------------ |
-| `ARCGIS_PORTAL_URL` | `https://www.arcgis.com` | ArcGIS Enterprise: your portal base URL          |
-| `LOG_LEVEL`         | `info`                   | `debug` \| `info` \| `error` (logs go to stderr) |
-| `MCP_TRANSPORT`     | `stdio`                  | Only `stdio` is supported for now                |
+| Variable                 | Default                  | Notes                                            |
+| ------------------------ | ------------------------ | ------------------------------------------------ |
+| `ARCGIS_PORTAL_URL`      | `https://www.arcgis.com` | ArcGIS Enterprise: your portal base URL          |
+| `LOG_LEVEL`              | `info`                   | `debug` \| `info` \| `error` (logs go to stderr) |
+| `MCP_TRANSPORT`          | `stdio`                  | `stdio` (local) or `http` (hosted) — see below   |
+| `PORT` / `MCP_HTTP_PORT` | `3000`                   | HTTP transport bind port                         |
+| `MCP_HTTP_HOST`          | `0.0.0.0`                | HTTP transport bind host                         |
 
 See [`.env.example`](./.env.example) for a copy-paste template.
 
@@ -95,6 +97,67 @@ Edit `claude_desktop_config.json`:
 Use an absolute path to `dist/index.js`, and run `pnpm build` first. Restart
 Claude Desktop after editing the config. Swap the `env` block for whichever auth
 mode you want (or omit credentials entirely for anonymous).
+
+## Hosted / remote (HTTP transport)
+
+To use the server **without installing it locally**, run it once as a hosted
+HTTPS endpoint and add it as a remote connector by URL.
+
+### Run in HTTP mode
+
+```bash
+MCP_TRANSPORT=http PORT=3000 pnpm start
+```
+
+Endpoints:
+
+| Method(s)         | Path       | Purpose                                  |
+| ----------------- | ---------- | ---------------------------------------- |
+| `POST/GET/DELETE` | `/mcp`     | MCP Streamable HTTP endpoint             |
+| `GET`             | `/healthz` | Health check for your host/load balancer |
+
+The transport runs **stateless** (no session pinning), so it sits comfortably
+behind a load balancer or serverless platform.
+
+### Per-request authentication (multi-user)
+
+Each request carries its **own** ArcGIS token, so one hosted instance serves
+many users without sharing a single identity:
+
+```
+Authorization: Bearer <arcgis-token>
+# or, to avoid colliding with a client's own OAuth header:
+X-ArcGIS-Token: <arcgis-token>
+```
+
+- A valid token ⇒ that user's identity (org-scoped search, their private items).
+- **No token ⇒ anonymous** (public items only), or the server's env credentials
+  if you configured any.
+- A bad/expired token comes back as a structured tool error (`498: Invalid
+token`) — never a crash.
+
+> The ArcGIS token _is_ the credential, so the endpoint is safe to expose:
+> without one you only reach public data. Get a token via your ArcGIS API key,
+> OAuth, or `…/sharing/rest/generateToken`. Still, terminate TLS in front of it
+> (your host normally does this) and consider network restrictions for private
+> portals.
+
+### Deploy
+
+Any Node ≥ 20 host works (Render, Railway, Fly.io, a VM behind nginx, …). The
+platform sets `PORT`; the server binds `0.0.0.0` by default. Typical settings:
+
+- **Build:** `pnpm install && pnpm build`
+- **Start:** `MCP_TRANSPORT=http node dist/index.js`
+- **Health check path:** `/healthz`
+
+### Add it to Claude as a remote connector
+
+In Claude (web or desktop, paid plans): **Settings → Connectors → Add custom
+connector**, then enter your public URL, e.g.
+`https://your-host.example.com/mcp`. If your client lets you set request
+headers, add your `Authorization: Bearer <arcgis-token>` (or `X-ArcGIS-Token`)
+there.
 
 ## Tools
 

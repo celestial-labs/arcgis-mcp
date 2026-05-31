@@ -22,10 +22,16 @@ export interface Config {
   readonly username?: string;
   readonly password?: string;
   readonly logLevel: LogLevel;
-  readonly transport: "stdio";
+  readonly transport: "stdio" | "http";
+  /** HTTP transport bind port (ignored for stdio). */
+  readonly httpPort: number;
+  /** HTTP transport bind host (ignored for stdio). */
+  readonly httpHost: string;
 }
 
 const DEFAULT_PORTAL_URL = "https://www.arcgis.com";
+const DEFAULT_HTTP_PORT = 3000;
+const DEFAULT_HTTP_HOST = "0.0.0.0";
 const REDACTED = "***redacted***";
 
 type Env = Record<string, string | undefined>;
@@ -67,6 +73,15 @@ function normalizePortalUrl(value: string | undefined): string {
   return base.replace(/\/+$/, "");
 }
 
+function parseTransport(value: string | undefined): "stdio" | "http" {
+  return clean(value)?.toLowerCase() === "http" ? "http" : "stdio";
+}
+
+function parsePort(value: string | undefined, fallback: number): number {
+  const parsed = Number(clean(value));
+  return Number.isInteger(parsed) && parsed > 0 && parsed < 65536 ? parsed : fallback;
+}
+
 /**
  * Build the immutable runtime Config from environment variables.
  * Pure function (takes `env` explicitly) so it is trivially testable.
@@ -81,7 +96,10 @@ export function loadConfig(env: Env = process.env): Config {
     sharingRestUrl: `${portalUrl}/sharing/rest`,
     authMode,
     logLevel: parseLogLevel(env.LOG_LEVEL),
-    transport: "stdio",
+    transport: parseTransport(env.MCP_TRANSPORT),
+    // Hosts commonly inject PORT; honor it, then MCP_HTTP_PORT, then default.
+    httpPort: parsePort(env.PORT ?? env.MCP_HTTP_PORT, DEFAULT_HTTP_PORT),
+    httpHost: clean(env.MCP_HTTP_HOST) ?? DEFAULT_HTTP_HOST,
   } as const;
 
   switch (authMode) {
@@ -112,6 +130,8 @@ export function redactConfig(config: Config): Record<string, unknown> {
     authMode: config.authMode,
     logLevel: config.logLevel,
     transport: config.transport,
+    httpPort: config.transport === "http" ? config.httpPort : undefined,
+    httpHost: config.transport === "http" ? config.httpHost : undefined,
     apiKey: config.apiKey ? REDACTED : undefined,
     clientId: config.clientId ? REDACTED : undefined,
     clientSecret: config.clientSecret ? REDACTED : undefined,

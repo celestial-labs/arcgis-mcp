@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Config } from "../config.js";
 import type { Logger } from "../logger.js";
-import { getPortalSelf } from "../session.js";
+import type { AuthProvider } from "../session.js";
 
 /** Minimal shape of the `user` object on the portal-self response. */
 interface PortalSelfUser {
@@ -10,15 +10,16 @@ interface PortalSelfUser {
   role?: string;
 }
 
-async function buildPortalInfo(config: Config, logger: Logger) {
-  const base = { portalUrl: config.portalUrl, authMode: config.authMode };
-
-  if (config.authMode === "anonymous") {
-    return { ...base, authenticated: false };
-  }
+async function buildPortalInfo(config: Config, logger: Logger, auth: AuthProvider) {
+  const base = { portalUrl: config.portalUrl, authMode: auth.mode };
 
   try {
-    const self = await getPortalSelf(config, logger);
+    const authentication = await auth.getAuthentication();
+    if (!authentication) {
+      return { ...base, authenticated: false };
+    }
+
+    const self = await auth.getPortalSelf();
     // `IPortal` has an index signature; `user` is present for user-based auth
     // and absent for app login.
     const user = self.user as PortalSelfUser | undefined;
@@ -39,7 +40,12 @@ async function buildPortalInfo(config: Config, logger: Logger) {
   }
 }
 
-export function registerPortalInfo(server: McpServer, config: Config, logger: Logger): void {
+export function registerPortalInfo(
+  server: McpServer,
+  config: Config,
+  logger: Logger,
+  auth: AuthProvider,
+): void {
   server.registerTool(
     "portal_info",
     {
@@ -51,7 +57,7 @@ export function registerPortalInfo(server: McpServer, config: Config, logger: Lo
       inputSchema: {},
     },
     async () => {
-      const payload = await buildPortalInfo(config, logger);
+      const payload = await buildPortalInfo(config, logger, auth);
       return { content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }] };
     },
   );

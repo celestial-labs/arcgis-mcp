@@ -4,7 +4,7 @@ import type { IItem, ISearchOptions } from "@esri/arcgis-rest-portal";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Config } from "../config.js";
 import type { Logger } from "../logger.js";
-import { getAuthentication, getPortalSelf } from "../session.js";
+import type { AuthProvider } from "../session.js";
 
 const MAX_DESCRIPTION = 500;
 
@@ -104,7 +104,7 @@ function mapItem(item: IItem, config: Config) {
   };
 }
 
-async function runSearch(input: SearchInput, config: Config, logger: Logger) {
+async function runSearch(input: SearchInput, config: Config, logger: Logger, auth: AuthProvider) {
   const baseQuery = buildQuery({
     query: input.query,
     itemType: input.itemType,
@@ -116,13 +116,17 @@ async function runSearch(input: SearchInput, config: Config, logger: Logger) {
     throw new Error("A non-empty query is required when outsideOrg=true.");
   }
 
+  // Resolve auth first: bad credentials/token surface here as a thrown error,
+  // which the handler turns into a structured tool error.
+  const authentication = await auth.getAuthentication();
+
   let finalQuery = baseQuery;
 
-  // Scope to the user's org unless explicitly asked to search the whole portal.
-  // Skip for anonymous mode, where there is no organization to scope to.
-  if (!input.outsideOrg && config.authMode !== "anonymous") {
+  // Scope to the caller's org unless explicitly asked to search the whole
+  // portal. Only meaningful when authenticated (anonymous has no org).
+  if (!input.outsideOrg && authentication) {
     try {
-      const self = await getPortalSelf(config, logger);
+      const self = await auth.getPortalSelf();
       if (self.id) {
         finalQuery = baseQuery ? `${baseQuery} AND orgid:${self.id}` : `orgid:${self.id}`;
       }
@@ -132,8 +136,6 @@ async function runSearch(input: SearchInput, config: Config, logger: Logger) {
       });
     }
   }
-
-  const authentication = await getAuthentication(config, logger);
 
   const options: ISearchOptions = {
     q: finalQuery,
@@ -158,7 +160,12 @@ async function runSearch(input: SearchInput, config: Config, logger: Logger) {
   };
 }
 
-export function registerSearchItems(server: McpServer, config: Config, logger: Logger): void {
+export function registerSearchItems(
+  server: McpServer,
+  config: Config,
+  logger: Logger,
+  auth: AuthProvider,
+): void {
   server.registerTool(
     "search_items",
     {
@@ -171,7 +178,7 @@ export function registerSearchItems(server: McpServer, config: Config, logger: L
     },
     async (input) => {
       try {
-        const payload = await runSearch(input as SearchInput, config, logger);
+        const payload = await runSearch(input as SearchInput, config, logger, auth);
         return { content: [{ type: "text" as const, text: JSON.stringify(payload, null, 2) }] };
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);

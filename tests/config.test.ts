@@ -102,6 +102,23 @@ describe("loadConfig", () => {
     expect(loadConfig({ LOG_LEVEL: "error" }).logLevel).toBe("error");
     expect(loadConfig({ LOG_LEVEL: "verbose" }).logLevel).toBe("info");
   });
+
+  it("defaults the transport to stdio", () => {
+    expect(loadConfig({}).transport).toBe("stdio");
+  });
+
+  it("selects the http transport via MCP_TRANSPORT (case-insensitive)", () => {
+    expect(loadConfig({ MCP_TRANSPORT: "http" }).transport).toBe("http");
+    expect(loadConfig({ MCP_TRANSPORT: "HTTP" }).transport).toBe("http");
+    expect(loadConfig({ MCP_TRANSPORT: "sse" }).transport).toBe("stdio");
+  });
+
+  it("honors PORT then MCP_HTTP_PORT, falling back to 3000", () => {
+    expect(loadConfig({}).httpPort).toBe(3000);
+    expect(loadConfig({ MCP_HTTP_PORT: "8080" }).httpPort).toBe(8080);
+    expect(loadConfig({ PORT: "9000", MCP_HTTP_PORT: "8080" }).httpPort).toBe(9000);
+    expect(loadConfig({ PORT: "not-a-port" }).httpPort).toBe(3000);
+  });
 });
 
 describe("redactConfig", () => {

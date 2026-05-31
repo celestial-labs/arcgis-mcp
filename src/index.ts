@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { loadConfig, redactConfig } from "./config.js";
 import { createLogger } from "./logger.js";
-import { registerSearchItems } from "./tools/searchItems.js";
-import { registerPortalInfo } from "./tools/portalInfo.js";
+import { createEnvAuthProvider } from "./session.js";
+import { buildServer } from "./server.js";
+import { startHttpServer } from "./http.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -13,16 +13,19 @@ async function main(): Promise<void> {
   // Redacted config only — never log secrets.
   logger.info("Starting arcgis-mcp", { config: redactConfig(config) });
 
-  const server = new McpServer({ name: "arcgis-mcp", version: "0.1.0" });
+  if (config.transport === "http") {
+    // Per-request auth: each HTTP request builds its own provider, so the
+    // server (and its env credentials) is created lazily inside the handler.
+    await startHttpServer(config, logger);
+    return;
+  }
 
-  // Tools register synchronously; no network access happens here, so the
-  // server starts even if the portal is unreachable.
-  registerSearchItems(server, config, logger);
-  registerPortalInfo(server, config, logger);
-
+  // stdio: a single server bound to the env-configured identity.
+  const auth = createEnvAuthProvider(config, logger);
+  const server = buildServer(config, logger, auth);
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  logger.info(`arcgis-mcp connected over ${config.transport} (auth mode: ${config.authMode})`);
+  logger.info(`arcgis-mcp connected over stdio (auth mode: ${config.authMode})`);
 }
 
 main().catch((error: unknown) => {
