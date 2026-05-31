@@ -5,6 +5,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { Config } from "../config.js";
 import type { Logger } from "../logger.js";
 import type { AuthProvider } from "../session.js";
+import { toIso, truncate } from "../util/format.js";
 
 const MAX_DESCRIPTION = 500;
 
@@ -76,15 +77,6 @@ type SearchInput = {
   sortOrder: "asc" | "desc";
   outsideOrg: boolean;
 };
-
-function truncate(text: string | undefined, max: number): string | null {
-  if (!text) return null;
-  return text.length > max ? `${text.slice(0, max)}…` : text;
-}
-
-function toIso(epochMs: number | undefined): string | null {
-  return typeof epochMs === "number" ? new Date(epochMs).toISOString() : null;
-}
 
 function mapItem(item: IItem, config: Config) {
   return {

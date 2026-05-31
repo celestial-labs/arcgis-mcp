@@ -185,6 +185,25 @@ Per-item result shape: `id`, `title`, `type`, `owner`, `snippet`, `description`
 `numViews`, `access`, `serviceUrl`, `itemPage` (a `…/home/item.html?id=…` link
 you can open in a browser).
 
+### `get_item`
+
+Fetch a single item by `id` (e.g. one returned by `search_items`) — full metadata
+**plus its content**.
+
+| Input         | Type    | Default | Notes                                                  |
+| ------------- | ------- | ------- | ------------------------------------------------------ |
+| `id`          | string  | –       | The ArcGIS item id                                     |
+| `includeData` | boolean | `true`  | Fetch the item's `/data` content and inline it if JSON |
+
+The item's content (the `…/items/{id}/data` payload — e.g. a form definition,
+web map, or dashboard JSON) is **inlined under `data`** when it is JSON and below
+~100 KB. Otherwise (too large or binary) `data` is omitted and you get a
+`dataUrl` to download it directly (send your token the same way you authenticate
+the server). Bad/inaccessible ids return a structured error, not a crash.
+
+Example: search for `workflow_example_form`, take the `id`, then call
+`get_item` with it — the form definition comes back under `data`.
+
 ### `portal_info`
 
 No arguments. Triggers auth and returns
@@ -218,10 +237,10 @@ Full reference: [Search reference — ArcGIS REST APIs](https://developers.arcgi
 
 Plausible next tools:
 
-- `get_item` — full metadata + sharing for a single item id
 - `get_webmap_layers` — list operational layers of a Web Map
 - `query_feature_layer` — attribute query against a Feature Layer (where clause,
   out fields, result limit)
+- `get_item_resources` — list/download attached item resources (images, configs)
 
 ## Out of scope
 
