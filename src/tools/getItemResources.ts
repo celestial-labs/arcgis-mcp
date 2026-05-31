@@ -15,7 +15,7 @@ const inputSchema = {
     .string()
     .optional()
     .describe(
-      "If provided, fetch the content of this specific resource file (e.g. \"thumbnail/ago_downloaded.png\"). " +
+      'If provided, fetch the content of this specific resource file (e.g. "thumbnail/ago_downloaded.png"). ' +
         "When omitted, lists all resources for the item.",
     ),
 };
@@ -29,7 +29,8 @@ async function runGetItemResources(
   auth: AuthProvider,
 ) {
   const authentication = await auth.getAuthentication();
-  const requestOptions: IRequestOptions = { portal: config.sharingRestUrl };
+  const sharingRestUrl = auth.getSharingRestUrl();
+  const requestOptions: IRequestOptions = { portal: sharingRestUrl };
   if (authentication) requestOptions.authentication = authentication;
 
   // Fetch a single resource's content when fileName is provided.
@@ -41,8 +42,7 @@ async function runGetItemResources(
       readAs: "json",
     });
 
-    const resourceUrl =
-      `${config.sharingRestUrl}/content/items/${input.id}/resources/${input.fileName}`;
+    const resourceUrl = `${sharingRestUrl}/content/items/${input.id}/resources/${input.fileName}`;
 
     if (data === undefined || data === null) {
       return {
@@ -83,7 +83,7 @@ async function runGetItemResources(
     access: r.access,
     size: r.size,
     created: toIso(r.created),
-    resourceUrl: `${config.sharingRestUrl}/content/items/${input.id}/resources/${r.resource}`,
+    resourceUrl: `${sharingRestUrl}/content/items/${input.id}/resources/${r.resource}`,
   }));
 
   return {

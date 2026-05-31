@@ -27,6 +27,8 @@ export interface AuthProvider {
   getAuthentication(): Promise<IAuthenticationManager | undefined>;
   /** Cached `/portals/self` for this provider. Triggers authentication. */
   getPortalSelf(): Promise<IPortal>;
+  /** The sharing REST URL (portal + /sharing/rest) this provider is bound to. */
+  getSharingRestUrl(): string;
 }
 
 type BuildAuth = () => Promise<IAuthenticationManager | undefined>;
@@ -35,12 +37,16 @@ type BuildAuth = () => Promise<IAuthenticationManager | undefined>;
  * Wrap an auth-building function with lazy, per-instance memoization plus a
  * shared `getPortalSelf` implementation. On failure the cache is cleared so the
  * next call retries.
+ *
+ * @param portalUrl - The sharing REST URL for this provider. If omitted, uses config.sharingRestUrl.
  */
 function makeProvider(
   mode: AuthMode | "token",
   config: Config,
   buildAuth: BuildAuth,
+  portalUrl?: string,
 ): AuthProvider {
+  const sharingRestUrl = portalUrl ?? config.sharingRestUrl;
   let authPromise: Promise<IAuthenticationManager | undefined> | undefined;
   let selfPromise: Promise<IPortal> | undefined;
 
@@ -58,7 +64,7 @@ function makeProvider(
     if (!selfPromise) {
       selfPromise = (async () => {
         const authentication = await getAuthentication();
-        const options: IRequestOptions = { portal: config.sharingRestUrl };
+        const options: IRequestOptions = { portal: sharingRestUrl };
         if (authentication) options.authentication = authentication;
         return getSelf(options);
       })().catch((err: unknown) => {
@@ -69,34 +75,38 @@ function makeProvider(
     return selfPromise;
   };
 
-  return { mode, getAuthentication, getPortalSelf };
+  const getSharingRestUrl = (): string => sharingRestUrl;
+
+  return { mode, getAuthentication, getPortalSelf, getSharingRestUrl };
 }
 
 /** Build the auth manager from environment-configured credentials. */
 function buildEnvAuthentication(
   config: Config,
   logger: Logger,
+  portalUrl?: string,
 ): Promise<IAuthenticationManager | undefined> {
+  const sharingRestUrl = portalUrl ?? config.sharingRestUrl;
   logger.debug("Initializing ArcGIS authentication", { authMode: config.authMode });
 
   switch (config.authMode) {
     case "apiKey":
       return Promise.resolve(
-        ApiKeyManager.fromKey({ key: config.apiKey!, portal: config.sharingRestUrl }),
+        ApiKeyManager.fromKey({ key: config.apiKey!, portal: sharingRestUrl }),
       );
     case "appLogin":
       return Promise.resolve(
         ApplicationCredentialsManager.fromCredentials({
           clientId: config.clientId!,
           clientSecret: config.clientSecret!,
-          portal: config.sharingRestUrl,
+          portal: sharingRestUrl,
         }),
       );
     case "userPassword":
       return ArcGISIdentityManager.signIn({
         username: config.username!,
         password: config.password!,
-        portal: config.sharingRestUrl,
+        portal: sharingRestUrl,
       });
     case "anonymous":
       return Promise.resolve(undefined);
@@ -106,22 +116,42 @@ function buildEnvAuthentication(
 /**
  * Provider backed by environment-variable credentials (stdio transport, and the
  * fallback for HTTP requests that arrive without a token).
+ *
+ * @param portalUrl - Optional per-instance portal URL. If omitted, uses config.ARCGIS_PORTAL_URL.
  */
-export function createEnvAuthProvider(config: Config, logger: Logger): AuthProvider {
-  return makeProvider(config.authMode, config, () => buildEnvAuthentication(config, logger));
+export function createEnvAuthProvider(
+  config: Config,
+  logger: Logger,
+  portalUrl?: string,
+): AuthProvider {
+  return makeProvider(
+    config.authMode,
+    config,
+    () => buildEnvAuthentication(config, logger, portalUrl),
+    portalUrl,
+  );
 }
 
 /**
  * Provider backed by a caller-supplied ArcGIS token (per-request HTTP auth).
  * The token is exchanged for an `ArcGISIdentityManager` bound to the portal.
+ *
+ * @param portalUrl - Optional per-instance portal URL. If omitted, uses config.ARCGIS_PORTAL_URL.
  */
 export function createTokenAuthProvider(
   config: Config,
   logger: Logger,
   token: string,
+  portalUrl?: string,
 ): AuthProvider {
-  return makeProvider("token", config, () => {
-    logger.debug("Building per-request token authentication");
-    return ArcGISIdentityManager.fromToken({ token, portal: config.sharingRestUrl });
-  });
+  const sharingRestUrl = portalUrl ? `${portalUrl}/sharing/rest` : config.sharingRestUrl;
+  return makeProvider(
+    "token",
+    config,
+    () => {
+      logger.debug("Building per-request token authentication");
+      return ArcGISIdentityManager.fromToken({ token, portal: sharingRestUrl });
+    },
+    sharingRestUrl,
+  );
 }

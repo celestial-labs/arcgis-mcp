@@ -53,13 +53,14 @@ by precedence — the first matching block wins:
 
 Additional variables:
 
-| Variable                 | Default                  | Notes                                            |
-| ------------------------ | ------------------------ | ------------------------------------------------ |
-| `ARCGIS_PORTAL_URL`      | `https://www.arcgis.com` | ArcGIS Enterprise: your portal base URL          |
-| `LOG_LEVEL`              | `info`                   | `debug` \| `info` \| `error` (logs go to stderr) |
-| `MCP_TRANSPORT`          | `stdio`                  | `stdio` (local) or `http` (hosted) — see below   |
-| `PORT` / `MCP_HTTP_PORT` | `3000`                   | HTTP transport bind port                         |
-| `MCP_HTTP_HOST`          | `0.0.0.0`                | HTTP transport bind host                         |
+| Variable                 | Default                    | Notes                                                                  |
+| ------------------------ | -------------------------- | ---------------------------------------------------------------------- |
+| `ARCGIS_PORTAL_URL`      | `https://www.arcgis.com`   | ArcGIS Enterprise: your portal base URL                                |
+| `ARCGIS_ALLOWED_PORTALS` | _(only ARCGIS_PORTAL_URL)_ | Comma-separated hosts allowed per-request. HTTP mode only — see below. |
+| `LOG_LEVEL`              | `info`                     | `debug` \| `info` \| `error` (logs go to stderr)                       |
+| `MCP_TRANSPORT`          | `stdio`                    | `stdio` (local) or `http` (hosted) — see below                         |
+| `PORT` / `MCP_HTTP_PORT` | `3000`                     | HTTP transport bind port                                               |
+| `MCP_HTTP_Host`          | `0.0.0.0`                  | HTTP transport bind host                                               |
 
 See [`.env.example`](./.env.example) for a copy-paste template.
 
@@ -119,7 +120,7 @@ Endpoints:
 The transport runs **stateless** (no session pinning), so it sits comfortably
 behind a load balancer or serverless platform.
 
-### Per-request authentication (multi-user)
+### Per-request authentication & portal (multi-user, multi-portal)
 
 Each request carries its **own** ArcGIS token, so one hosted instance serves
 many users without sharing a single identity:
@@ -136,6 +137,16 @@ X-ArcGIS-Token: <arcgis-token>
 - A bad/expired token comes back as a structured tool error (`498: Invalid
 token`) — never a crash.
 
+**Per-request portal** (optional): clients can specify a custom ArcGIS Portal via:
+
+```
+X-ArcGIS-Portal: https://gis.example.com/portal
+```
+
+The hostname (here: `gis.example.com`) must be in `ARCGIS_ALLOWED_PORTALS`
+(comma-separated list). If omitted, defaults to the server's `ARCGIS_PORTAL_URL`.
+**SSRF protection:** any portal not in the allowlist returns `403 Forbidden`.
+
 > The ArcGIS token _is_ the credential, so the endpoint is safe to expose:
 > without one you only reach public data. Get a token via your ArcGIS API key,
 > OAuth, or `…/sharing/rest/generateToken`. Still, terminate TLS in front of it
@@ -150,6 +161,22 @@ platform sets `PORT`; the server binds `0.0.0.0` by default. Typical settings:
 - **Build:** `pnpm install && pnpm build`
 - **Start:** `MCP_TRANSPORT=http node dist/index.js`
 - **Health check path:** `/healthz`
+
+### Use with n8n
+
+This server works with **n8n's HTTP request node** or custom MCP connector (when available).
+
+**Example: n8n workflow with per-request OAuth**
+
+1. **Configure n8n ArcGIS credentials:** In n8n, add an ArcGIS connection (or use a generic HTTP credential) and authenticate via OAuth to your portal. n8n stores the token securely.
+2. **Use the HTTP request node:** Point it to your hosted MCP server:
+   - **URL:** `https://your-host.example.com/mcp` (or `/healthz` for health checks)
+   - **Headers:**
+     - `Authorization: Bearer <token-from-n8n-credential>`
+     - `X-ArcGIS-Portal: https://gis.example.com/portal` (if using a custom portal)
+   - **Body:** Your MCP JSON-RPC request
+
+3. **Multiple portals:** Configure n8n with different OAuth credentials (one per portal). Each workflow / request can carry its own token and portal URL.
 
 ### Add it to Claude as a remote connector
 
@@ -208,10 +235,10 @@ Example: search for `workflow_example_form`, take the `id`, then call
 
 List all file resources attached to an item, or fetch the content of a specific one.
 
-| Input      | Type    | Default | Notes                                                                                    |
-| ---------- | ------- | ------- | ---------------------------------------------------------------------------------------- |
-| `id`       | string  | –       | The ArcGIS item id                                                                       |
-| `fileName` | string  | –       | When provided, fetch that resource's content (e.g. `"thumbnail/ago_downloaded.png"`)    |
+| Input      | Type   | Default | Notes                                                                                |
+| ---------- | ------ | ------- | ------------------------------------------------------------------------------------ |
+| `id`       | string | –       | The ArcGIS item id                                                                   |
+| `fileName` | string | –       | When provided, fetch that resource's content (e.g. `"thumbnail/ago_downloaded.png"`) |
 
 **Without `fileName`** (list mode): returns `{ id, total, count, resources[] }` where each
 resource has `fileName`, `access`, `size`, `created` (ISO-8601), and a direct `resourceUrl`.

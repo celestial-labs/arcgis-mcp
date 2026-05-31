@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import type { Config } from "./config.js";
+import { isPortalAllowed, type Config } from "./config.js";
 import type { Logger } from "./logger.js";
 import { createEnvAuthProvider, createTokenAuthProvider } from "./session.js";
 import type { AuthProvider } from "./session.js";
@@ -28,11 +28,33 @@ function extractToken(req: IncomingMessage): string | undefined {
   return undefined;
 }
 
+/**
+ * Per-request portal URL (SSRF protection): the caller can specify a custom
+ * portal via the `X-ArcGIS-Portal` header. Must be in the allowedPortals list.
+ * If omitted, falls back to the server's configured ARCGIS_PORTAL_URL.
+ */
+function extractPortalUrl(req: IncomingMessage, config: Config): string | undefined {
+  const header = req.headers["x-arcgis-portal"];
+  if (typeof header !== "string") return undefined;
+
+  const trimmed = header.trim();
+  if (!trimmed) return undefined;
+
+  if (!isPortalAllowed(trimmed, config)) {
+    throw new Error(
+      `Portal not allowed: ${trimmed}. Allowed hosts: ${config.allowedPortals.join(", ")}`,
+    );
+  }
+
+  return trimmed;
+}
+
 function providerForRequest(req: IncomingMessage, config: Config, logger: Logger): AuthProvider {
   const token = extractToken(req);
+  const portalUrl = extractPortalUrl(req, config);
   return token
-    ? createTokenAuthProvider(config, logger, token)
-    : createEnvAuthProvider(config, logger);
+    ? createTokenAuthProvider(config, logger, token, portalUrl)
+    : createEnvAuthProvider(config, logger, portalUrl);
 }
 
 function readBody(req: IncomingMessage): Promise<unknown> {
@@ -87,7 +109,16 @@ async function handleMcp(
 ): Promise<void> {
   // Stateless: a fresh server + transport per request, bound to this caller's
   // identity. Avoids cross-request state leakage between different tokens.
-  const auth = providerForRequest(req, config, logger);
+  let auth: AuthProvider;
+  try {
+    auth = providerForRequest(req, config, logger);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.error("Portal validation failed", { error: message });
+    sendJson(res, 403, { error: message });
+    return;
+  }
+
   const server = buildServer(config, logger, auth);
   // Omitting `sessionIdGenerator` selects stateless mode (no session id / no
   // session validation) — the right fit for per-request, token-scoped auth.

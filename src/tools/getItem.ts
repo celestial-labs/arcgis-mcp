@@ -27,14 +27,15 @@ type GetItemInput = { id: string; includeData: boolean };
 
 async function runGetItem(input: GetItemInput, config: Config, logger: Logger, auth: AuthProvider) {
   const authentication = await auth.getAuthentication();
-  const requestOptions: IRequestOptions = { portal: config.sharingRestUrl };
+  const sharingRestUrl = auth.getSharingRestUrl();
+  const requestOptions: IRequestOptions = { portal: sharingRestUrl };
   if (authentication) requestOptions.authentication = authentication;
 
   const item = await getItem(input.id, requestOptions);
 
   // Direct REST download endpoint for the raw content (needs a token for
   // non-public items — pass it the same way you authenticate this server).
-  const dataUrl = `${config.sharingRestUrl}/content/items/${item.id}/data`;
+  const dataUrl = `${sharingRestUrl}/content/items/${item.id}/data`;
 
   const result: {
     id: string;
@@ -65,7 +66,7 @@ async function runGetItem(input: GetItemInput, config: Config, logger: Logger, a
     created: toIso(item.created),
     modified: toIso(item.modified),
     serviceUrl: item.url ?? null,
-    itemPage: `${config.portalUrl}/home/item.html?id=${item.id}`,
+    itemPage: `${sharingRestUrl.replace(/\/sharing\/rest$/, "")}/home/item.html?id=${item.id}`,
     dataUrl,
     dataIncluded: false,
   };

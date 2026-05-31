@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { detectAuthMode, loadConfig, redactConfig } from "../src/config.js";
+import { detectAuthMode, isPortalAllowed, loadConfig, redactConfig } from "../src/config.js";
 
 describe("detectAuthMode", () => {
   it("detects apiKey mode", () => {
@@ -145,5 +145,61 @@ describe("redactConfig", () => {
     expect(safe.clientId).toBe("***redacted***");
     expect(safe.clientSecret).toBe("***redacted***");
     expect(JSON.stringify(safe)).not.toContain("topsecret");
+  });
+});
+
+describe("isPortalAllowed (SSRF protection)", () => {
+  it("allows the default portal when no allowlist is set", () => {
+    const cfg = loadConfig({});
+    expect(cfg.allowedPortals).toEqual(["www.arcgis.com"]);
+    expect(isPortalAllowed("https://www.arcgis.com", cfg)).toBe(true);
+  });
+
+  it("allows only the default portal when ARCGIS_ALLOWED_PORTALS is unset", () => {
+    const cfg = loadConfig({ ARCGIS_PORTAL_URL: "https://gis.example.com/portal" });
+    expect(cfg.allowedPortals).toEqual(["gis.example.com"]);
+    expect(isPortalAllowed("https://gis.example.com/portal", cfg)).toBe(true);
+    expect(isPortalAllowed("https://www.arcgis.com", cfg)).toBe(false);
+  });
+
+  it("parses comma-separated allowlist from ARCGIS_ALLOWED_PORTALS", () => {
+    const cfg = loadConfig({
+      ARCGIS_ALLOWED_PORTALS: "www.arcgis.com, gis.example.com , other.org",
+    });
+    expect(cfg.allowedPortals).toEqual(["www.arcgis.com", "gis.example.com", "other.org"]);
+    expect(isPortalAllowed("https://www.arcgis.com", cfg)).toBe(true);
+    expect(isPortalAllowed("https://gis.example.com/portal", cfg)).toBe(true);
+    expect(isPortalAllowed("https://other.org/gis", cfg)).toBe(true);
+    expect(isPortalAllowed("https://malicious.com", cfg)).toBe(false);
+  });
+
+  it("deduplicates and trims the allowlist", () => {
+    const cfg = loadConfig({
+      ARCGIS_ALLOWED_PORTALS: "host.com , host.com, other.com ",
+    });
+    expect(cfg.allowedPortals).toEqual(["host.com", "other.com"]);
+  });
+
+  it("ignores blank entries", () => {
+    const cfg = loadConfig({
+      ARCGIS_ALLOWED_PORTALS: "host.com,  , other.com",
+    });
+    expect(cfg.allowedPortals).toEqual(["host.com", "other.com"]);
+  });
+
+  it("extracts hostname from full URLs for comparison", () => {
+    const cfg = loadConfig({ ARCGIS_ALLOWED_PORTALS: "gis.example.com" });
+    // URLs with different schemes, ports, paths should still match by hostname.
+    expect(isPortalAllowed("https://gis.example.com", cfg)).toBe(true);
+    expect(isPortalAllowed("http://gis.example.com:7080/portal", cfg)).toBe(true);
+    expect(isPortalAllowed("https://gis.example.com/portal/sharing/rest", cfg)).toBe(true);
+    // But different hostname should not match.
+    expect(isPortalAllowed("https://other.example.com", cfg)).toBe(false);
+  });
+
+  it("returns false for invalid URLs", () => {
+    const cfg = loadConfig({ ARCGIS_ALLOWED_PORTALS: "valid.com" });
+    expect(isPortalAllowed("not-a-url", cfg)).toBe(false);
+    expect(isPortalAllowed("", cfg)).toBe(false);
   });
 });

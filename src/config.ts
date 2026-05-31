@@ -27,6 +27,8 @@ export interface Config {
   readonly httpPort: number;
   /** HTTP transport bind host (ignored for stdio). */
   readonly httpHost: string;
+  /** Allowed portal hostnames for per-request portal selection (SSRF protection). */
+  readonly allowedPortals: string[];
 }
 
 const DEFAULT_PORTAL_URL = "https://www.arcgis.com";
@@ -82,6 +84,26 @@ function parsePort(value: string | undefined, fallback: number): number {
   return Number.isInteger(parsed) && parsed > 0 && parsed < 65536 ? parsed : fallback;
 }
 
+function parseAllowedPortals(value: string | undefined, defaultPortalUrl: string): string[] {
+  const raw = clean(value);
+  if (!raw) {
+    try {
+      const url = new URL(defaultPortalUrl);
+      return [url.hostname];
+    } catch {
+      return [];
+    }
+  }
+  return Array.from(
+    new Set(
+      raw
+        .split(",")
+        .map((h) => h.trim())
+        .filter((h) => h.length > 0),
+    ),
+  );
+}
+
 /**
  * Build the immutable runtime Config from environment variables.
  * Pure function (takes `env` explicitly) so it is trivially testable.
@@ -100,6 +122,7 @@ export function loadConfig(env: Env = process.env): Config {
     // Hosts commonly inject PORT; honor it, then MCP_HTTP_PORT, then default.
     httpPort: parsePort(env.PORT ?? env.MCP_HTTP_PORT, DEFAULT_HTTP_PORT),
     httpHost: clean(env.MCP_HTTP_HOST) ?? DEFAULT_HTTP_HOST,
+    allowedPortals: parseAllowedPortals(env.ARCGIS_ALLOWED_PORTALS, portalUrl),
   } as const;
 
   switch (authMode) {
@@ -122,6 +145,19 @@ export function loadConfig(env: Env = process.env): Config {
   }
 }
 
+/**
+ * Check if a portal URL is allowed (SSRF protection). The requested URL's hostname
+ * must be in the allowedPortals list. Exported for testing.
+ */
+export function isPortalAllowed(portalUrl: string, config: Config): boolean {
+  try {
+    const url = new URL(portalUrl);
+    return config.allowedPortals.includes(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
 /** Config with all secrets redacted — safe to log. */
 export function redactConfig(config: Config): Record<string, unknown> {
   return {
@@ -132,6 +168,7 @@ export function redactConfig(config: Config): Record<string, unknown> {
     transport: config.transport,
     httpPort: config.transport === "http" ? config.httpPort : undefined,
     httpHost: config.transport === "http" ? config.httpHost : undefined,
+    allowedPortals: config.allowedPortals,
     apiKey: config.apiKey ? REDACTED : undefined,
     clientId: config.clientId ? REDACTED : undefined,
     clientSecret: config.clientSecret ? REDACTED : undefined,

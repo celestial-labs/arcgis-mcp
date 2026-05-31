@@ -111,6 +111,7 @@ async function runSearch(input: SearchInput, config: Config, logger: Logger, aut
   // Resolve auth first: bad credentials/token surface here as a thrown error,
   // which the handler turns into a structured tool error.
   const authentication = await auth.getAuthentication();
+  const sharingRestUrl = auth.getSharingRestUrl();
 
   let finalQuery = baseQuery;
 
@@ -133,7 +134,7 @@ async function runSearch(input: SearchInput, config: Config, logger: Logger, aut
     q: finalQuery,
     num: input.maxItems,
     sortOrder: input.sortOrder,
-    portal: config.sharingRestUrl,
+    portal: sharingRestUrl,
   };
   if (input.sortField) options.sortField = input.sortField;
   if (authentication) options.authentication = authentication;

@@ -11,7 +11,9 @@ interface PortalSelfUser {
 }
 
 async function buildPortalInfo(config: Config, logger: Logger, auth: AuthProvider) {
-  const base = { portalUrl: config.portalUrl, authMode: auth.mode };
+  const sharingRestUrl = auth.getSharingRestUrl();
+  const portalUrl = sharingRestUrl.replace(/\/sharing\/rest$/, "");
+  const base = { portalUrl, authMode: auth.mode };
 
   try {
     const authentication = await auth.getAuthentication();
