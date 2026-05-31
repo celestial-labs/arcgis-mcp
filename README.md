@@ -7,7 +7,7 @@ MCP clients (Claude Desktop, etc.) search and inspect **ArcGIS Portal** and
 Esri Python stack, no native dependencies.
 
 - **Transport:** stdio (local) **or** Streamable HTTP (hosted/remote)
-- **Tools:** `search_items`, `portal_info`
+- **Tools:** `search_items`, `get_item`, `get_item_resources`, `portal_info`
 - **Auth:** API key · OAuth app login · username/password · anonymous (auto-detected)
 
 ---
@@ -204,6 +204,21 @@ the server). Bad/inaccessible ids return a structured error, not a crash.
 Example: search for `workflow_example_form`, take the `id`, then call
 `get_item` with it — the form definition comes back under `data`.
 
+### `get_item_resources`
+
+List all file resources attached to an item, or fetch the content of a specific one.
+
+| Input      | Type    | Default | Notes                                                                                    |
+| ---------- | ------- | ------- | ---------------------------------------------------------------------------------------- |
+| `id`       | string  | –       | The ArcGIS item id                                                                       |
+| `fileName` | string  | –       | When provided, fetch that resource's content (e.g. `"thumbnail/ago_downloaded.png"`)    |
+
+**Without `fileName`** (list mode): returns `{ id, total, count, resources[] }` where each
+resource has `fileName`, `access`, `size`, `created` (ISO-8601), and a direct `resourceUrl`.
+
+**With `fileName`** (fetch mode): returns the resource content inline under `data` when it is
+JSON and below ~100 KB, otherwise a `resourceUrl` to download it directly.
+
 ### `portal_info`
 
 No arguments. Triggers auth and returns
@@ -240,7 +255,6 @@ Plausible next tools:
 - `get_webmap_layers` — list operational layers of a Web Map
 - `query_feature_layer` — attribute query against a Feature Layer (where clause,
   out fields, result limit)
-- `get_item_resources` — list/download attached item resources (images, configs)
 
 ## Out of scope
 

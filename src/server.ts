@@ -4,6 +4,7 @@ import type { Logger } from "./logger.js";
 import type { AuthProvider } from "./session.js";
 import { registerSearchItems } from "./tools/searchItems.js";
 import { registerGetItem } from "./tools/getItem.js";
+import { registerGetItemResources } from "./tools/getItemResources.js";
 import { registerPortalInfo } from "./tools/portalInfo.js";
 
 export const SERVER_NAME = "arcgis-mcp";
@@ -20,6 +21,7 @@ export function buildServer(config: Config, logger: Logger, auth: AuthProvider):
   const server = new McpServer({ name: SERVER_NAME, version: SERVER_VERSION });
   registerSearchItems(server, config, logger, auth);
   registerGetItem(server, config, logger, auth);
+  registerGetItemResources(server, config, logger, auth);
   registerPortalInfo(server, config, logger, auth);
   return server;
 }
