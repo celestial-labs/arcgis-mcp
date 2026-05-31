@@ -1,0 +1,132 @@
+import { describe, expect, it } from "vitest";
+import { detectAuthMode, loadConfig, redactConfig } from "../src/config.js";
+
+describe("detectAuthMode", () => {
+  it("detects apiKey mode", () => {
+    expect(detectAuthMode({ ARCGIS_API_KEY: "AAPKxyz" })).toBe("apiKey");
+  });
+
+  it("detects appLogin mode", () => {
+    expect(detectAuthMode({ ARCGIS_CLIENT_ID: "id123", ARCGIS_CLIENT_SECRET: "secret" })).toBe(
+      "appLogin",
+    );
+  });
+
+  it("detects userPassword mode", () => {
+    expect(detectAuthMode({ ARCGIS_USERNAME: "jane", ARCGIS_PASSWORD: "pw" })).toBe("userPassword");
+  });
+
+  it("detects anonymous mode when nothing is set", () => {
+    expect(detectAuthMode({})).toBe("anonymous");
+  });
+
+  it("ignores blank/whitespace-only values", () => {
+    expect(detectAuthMode({ ARCGIS_API_KEY: "   " })).toBe("anonymous");
+    expect(detectAuthMode({ ARCGIS_CLIENT_ID: "id", ARCGIS_CLIENT_SECRET: "  " })).toBe(
+      "anonymous",
+    );
+  });
+
+  describe("precedence (first match wins)", () => {
+    it("apiKey beats everything", () => {
+      expect(
+        detectAuthMode({
+          ARCGIS_API_KEY: "k",
+          ARCGIS_CLIENT_ID: "id",
+          ARCGIS_CLIENT_SECRET: "s",
+          ARCGIS_USERNAME: "jane",
+          ARCGIS_PASSWORD: "pw",
+        }),
+      ).toBe("apiKey");
+    });
+
+    it("appLogin beats userPassword", () => {
+      expect(
+        detectAuthMode({
+          ARCGIS_CLIENT_ID: "id",
+          ARCGIS_CLIENT_SECRET: "s",
+          ARCGIS_USERNAME: "jane",
+          ARCGIS_PASSWORD: "pw",
+        }),
+      ).toBe("appLogin");
+    });
+
+    it("incomplete appLogin falls through to userPassword", () => {
+      expect(
+        detectAuthMode({
+          ARCGIS_CLIENT_ID: "id", // no secret
+          ARCGIS_USERNAME: "jane",
+          ARCGIS_PASSWORD: "pw",
+        }),
+      ).toBe("userPassword");
+    });
+  });
+});
+
+describe("loadConfig", () => {
+  it("defaults to ArcGIS Online and stdio/info", () => {
+    const cfg = loadConfig({});
+    expect(cfg.portalUrl).toBe("https://www.arcgis.com");
+    expect(cfg.sharingRestUrl).toBe("https://www.arcgis.com/sharing/rest");
+    expect(cfg.authMode).toBe("anonymous");
+    expect(cfg.logLevel).toBe("info");
+    expect(cfg.transport).toBe("stdio");
+  });
+
+  it("strips a trailing slash from the portal URL", () => {
+    const cfg = loadConfig({ ARCGIS_PORTAL_URL: "https://org.example.com/portal/" });
+    expect(cfg.portalUrl).toBe("https://org.example.com/portal");
+    expect(cfg.sharingRestUrl).toBe("https://org.example.com/portal/sharing/rest");
+  });
+
+  it("populates apiKey for apiKey mode and nothing else", () => {
+    const cfg = loadConfig({ ARCGIS_API_KEY: "AAPKxyz" });
+    expect(cfg.authMode).toBe("apiKey");
+    expect(cfg.apiKey).toBe("AAPKxyz");
+    expect(cfg.clientId).toBeUndefined();
+    expect(cfg.username).toBeUndefined();
+  });
+
+  it("populates credentials for appLogin and userPassword modes", () => {
+    const app = loadConfig({ ARCGIS_CLIENT_ID: "id", ARCGIS_CLIENT_SECRET: "secret" });
+    expect(app.clientId).toBe("id");
+    expect(app.clientSecret).toBe("secret");
+
+    const user = loadConfig({ ARCGIS_USERNAME: "jane", ARCGIS_PASSWORD: "pw" });
+    expect(user.username).toBe("jane");
+    expect(user.password).toBe("pw");
+  });
+
+  it("parses LOG_LEVEL and falls back to info on unknown values", () => {
+    expect(loadConfig({ LOG_LEVEL: "debug" }).logLevel).toBe("debug");
+    expect(loadConfig({ LOG_LEVEL: "error" }).logLevel).toBe("error");
+    expect(loadConfig({ LOG_LEVEL: "verbose" }).logLevel).toBe("info");
+  });
+});
+
+describe("redactConfig", () => {
+  it("redacts every secret but keeps the username and portal", () => {
+    const cfg = loadConfig({
+      ARCGIS_API_KEY: "AAPK-super-secret",
+    });
+    const safe = redactConfig(cfg);
+    expect(JSON.stringify(safe)).not.toContain("AAPK-super-secret");
+    expect(safe.apiKey).toBe("***redacted***");
+  });
+
+  it("redacts password but exposes username (not a secret)", () => {
+    const cfg = loadConfig({ ARCGIS_USERNAME: "jane", ARCGIS_PASSWORD: "hunter2" });
+    const safe = redactConfig(cfg);
+    expect(safe.username).toBe("jane");
+    expect(safe.password).toBe("***redacted***");
+    expect(JSON.stringify(safe)).not.toContain("hunter2");
+  });
+
+  it("redacts client secret", () => {
+    const cfg = loadConfig({ ARCGIS_CLIENT_ID: "id", ARCGIS_CLIENT_SECRET: "topsecret" });
+    const safe = redactConfig(cfg);
+    expect(safe.clientId).toBe("***redacted***");
+    expect(safe.clientSecret).toBe("***redacted***");
+    expect(JSON.stringify(safe)).not.toContain("topsecret");
+  });
+});
